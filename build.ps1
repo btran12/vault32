@@ -31,19 +31,19 @@ try {
 
     switch ($Mode) {
         "spec" {
-            Write-Host "Building from VaultLock.spec (onedir) ..."
-            & $py[0] $py[1] PyInstaller --noconfirm --clean "VaultLock.spec"
-            Write-Host "Done. Output: .\dist\VaultLock\VaultLock.exe"
+            Write-Host "Building from vault32.spec (onedir) ..."
+            & $py[0] $py[1] PyInstaller --noconfirm --clean "vault32.spec"
+            Write-Host "Done. Output: .\dist\vault32\vault32.exe"
         }
         "onedir" {
             Write-Host "Building onedir executable ..."
-            & $py[0] $py[1] PyInstaller --noconfirm --clean --windowed --name VaultLock --collect-all cryptography "vaultlock.py"
-            Write-Host "Done. Output: .\dist\VaultLock\VaultLock.exe"
+            & $py[0] $py[1] PyInstaller --noconfirm --clean --windowed --name vault32 --icon "assets\vault32.ico" --collect-all cryptography "vaultlock.py"
+            Write-Host "Done. Output: .\dist\vault32\vault32.exe"
         }
         "onefile" {
             Write-Host "Building onefile executable ..."
-            & $py[0] $py[1] PyInstaller --noconfirm --clean --onefile --windowed --name VaultLock --collect-all cryptography "vaultlock.py"
-            Write-Host "Done. Output: .\dist\VaultLock.exe"
+            & $py[0] $py[1] PyInstaller --noconfirm --clean --onefile --windowed --name vault32 --icon "assets\vault32.ico" --collect-all cryptography "vaultlock.py"
+            Write-Host "Done. Output: .\dist\vault32.exe"
         }
     }
 }

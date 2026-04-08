@@ -14,6 +14,7 @@ build/
 dist/
 *.spec
 !VaultLock.spec
+!vault32.spec
 *.egg-info/
 .eggs/
 

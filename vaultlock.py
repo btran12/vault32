@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VaultLock launcher.
+vault32 launcher.
 """
 
 import sys

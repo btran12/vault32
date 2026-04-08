@@ -36,10 +36,10 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon='assets\\vault32.ico',
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['assets\\vault32.ico'],
 )
 coll = COLLECT(
     exe,

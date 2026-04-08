@@ -1,5 +1,5 @@
 """
-VaultLock GUI application.
+vault32 GUI application.
 """
 
 import json
@@ -39,14 +39,28 @@ FONT_SMALL = ("Segoe UI", 9)
 class VaultLockApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("VaultLock")
+        self.title("vault32")
         self.resizable(False, False)
         self.configure(bg=BG)
 
-        # Fixed private vault location (default UX).
-        self._vault_dir = os.path.join(os.path.expanduser("~"), "VaultLockPrivate")
+        # Use the new vault32 paths, but keep legacy VaultLock locations if already in use.
+        default_vault_dir = os.path.join(os.path.expanduser("~"), "vault32Private")
+        legacy_vault_dir = os.path.join(os.path.expanduser("~"), "VaultLockPrivate")
+        default_config_path = os.path.join(os.path.expanduser("~"), ".vault32_settings.json")
+        legacy_config_path = os.path.join(os.path.expanduser("~"), ".vaultlock_settings.json")
+
+        self._vault_dir = default_vault_dir
+        self._config_path = default_config_path
+        if (
+            not os.path.exists(default_vault_dir)
+            and not os.path.exists(default_vault_dir + ".locked")
+            and (os.path.exists(legacy_vault_dir) or os.path.exists(legacy_vault_dir + ".locked"))
+        ):
+            self._vault_dir = legacy_vault_dir
+        if not os.path.exists(default_config_path) and os.path.exists(legacy_config_path):
+            self._config_path = legacy_config_path
+
         self._vault_locked = self._vault_dir + ".locked"
-        self._config_path = os.path.join(os.path.expanduser("~"), ".vaultlock_settings.json")
         self._vault_password = None
         self._vault_unlocked = False
         self._vault_items = []
@@ -69,7 +83,7 @@ class VaultLockApp(tk.Tk):
             self.after(150, self._startup_vault_flow)
 
     def _get_startup_locked_path(self):
-        # Supports launching from Windows file association: VaultLock.exe "file.locked"
+        # Supports launching from Windows file association: vault32.exe "file.locked"
         for arg in sys.argv[1:]:
             candidate = os.path.abspath(arg)
             if os.path.isfile(candidate) and candidate.lower().endswith(".locked"):
@@ -136,7 +150,7 @@ class VaultLockApp(tk.Tk):
         # ── Header ──
         hdr = tk.Frame(self, bg=BG, padx=24, pady=20)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="VAULTLOCK", font=FONT_TITLE,
+        tk.Label(hdr, text="VAULT32", font=FONT_TITLE,
                  fg=ACCENT, bg=BG).pack(side="left")
         tk.Label(hdr, text="v1.1", font=FONT_SMALL,
                  fg=SUBTEXT, bg=BG).pack(side="left", padx=(8, 0), pady=(6, 0))
@@ -389,8 +403,6 @@ class VaultLockApp(tk.Tk):
             font=FONT_MONO,
         )
         sec_menu.pack(side="left", padx=(0, 8))
-        tk.Label(row_sec, text="(fastest -> strongest)", font=FONT_SMALL,
-                 fg=SUBTEXT, bg=SURFACE).pack(side="left")
 
         self._btn(card, "SAVE SETTINGS", self._apply_settings, accent=True).pack(anchor="w", pady=(6, 0))
 
@@ -590,7 +602,7 @@ class VaultLockApp(tk.Tk):
     def _browse_locked_file(self):
         f = filedialog.askopenfilename(
             title="Select .locked file",
-            filetypes=[("VaultLock files", "*.locked"), ("All files", "*.*")]
+            filetypes=[("vault32 files", "*.locked"), ("All files", "*.*")]
         )
         if f:
             self._unlock_path.set(f)

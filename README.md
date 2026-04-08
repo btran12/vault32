@@ -1,6 +1,6 @@
-# VaultLock
+# vault32
 
-VaultLock is a desktop app for locking and unlocking folders with password-based encryption.
+vault32 is a desktop app for locking and unlocking folders with password-based encryption.
 
 It provides:
 - A private vault workflow in the app UI
@@ -13,7 +13,8 @@ It provides:
 - `vl_gui.py` - Tkinter GUI and user workflows
 - `vl_crypto.py` - encryption/decryption core
 - `build.ps1` - build helper script for packaging
-- `VaultLock.spec` - reusable PyInstaller spec
+- `vault32.spec` - reusable PyInstaller spec
+- `assets/vault32.ico` - application icon used by EXE builds
 
 ## Requirements
 
@@ -73,25 +74,25 @@ Build modes:
   ```powershell
   .\build.ps1 -Mode spec
   ```
-  Output: `.\dist\VaultLock\VaultLock.exe`
+  Output: `.\dist\vault32\vault32.exe`
 
 - `onedir`:
   ```powershell
   .\build.ps1 -Mode onedir
   ```
-  Output: `.\dist\VaultLock\VaultLock.exe`
+  Output: `.\dist\vault32\vault32.exe`
 
 - `onefile`:
   ```powershell
   .\build.ps1 -Mode onefile
   ```
-  Output: `.\dist\VaultLock.exe`
+  Output: `.\dist\vault32.exe`
 
 ### Option B: Build directly with PyInstaller
 
 ```powershell
 py -m pip install pyinstaller cryptography
-py -m PyInstaller --noconfirm --clean --windowed --name VaultLock --collect-all cryptography vaultlock.py
+py -m PyInstaller --noconfirm --clean --windowed --name vault32 --collect-all cryptography vaultlock.py
 ```
 
 ## Distribution Notes
