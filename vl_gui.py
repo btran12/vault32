@@ -20,19 +20,94 @@ from vl_crypto import (
 )
 
 
+THEMES = {
+    "forest": {
+        "bg": "#f4faf6",
+        "surface": "#ffffff",
+        "surface_variant": "#edf4ef",
+        "border": "#d4e1d8",
+        "accent": "#1f7a4f",
+        "on_accent": "#ffffff",
+        "accent_container": "#d6efe1",
+        "button_tonal": "#e8f1eb",
+        "button_tonal_active": "#d9e7df",
+        "input_bg": "#f7fcf8",
+        "warning_bg": "#fff4e4",
+        "warning_border": "#efd3ad",
+        "warning_text": "#7b4b00",
+        "text": "#17211b",
+        "subtext": "#5b6b62",
+        "danger": "#b3261e",
+        "success": "#2e7d32",
+    },
+    "slate": {
+        "bg": "#f5f7fb",
+        "surface": "#ffffff",
+        "surface_variant": "#edf1f8",
+        "border": "#d5dce8",
+        "accent": "#345ca8",
+        "on_accent": "#ffffff",
+        "accent_container": "#dce6fb",
+        "button_tonal": "#e8edf6",
+        "button_tonal_active": "#d9e3f2",
+        "input_bg": "#f8faff",
+        "warning_bg": "#fff4e4",
+        "warning_border": "#efd3ad",
+        "warning_text": "#7b4b00",
+        "text": "#182236",
+        "subtext": "#566178",
+        "danger": "#b3261e",
+        "success": "#15803d",
+    },
+    "midnight": {
+        "bg": "#0f141d",
+        "surface": "#161d29",
+        "surface_variant": "#1b2433",
+        "border": "#2b3a4f",
+        "accent": "#58a6ff",
+        "on_accent": "#0b1220",
+        "accent_container": "#223956",
+        "button_tonal": "#233044",
+        "button_tonal_active": "#2b3a52",
+        "input_bg": "#1d2736",
+        "warning_bg": "#3e2e11",
+        "warning_border": "#6a4d18",
+        "warning_text": "#ffd58f",
+        "text": "#e7edf7",
+        "subtext": "#a3b0c4",
+        "danger": "#ff8a80",
+        "success": "#10b981",
+    },
+}
+THEME_LABELS = {
+    "forest": "Forest Secure",
+    "slate": "Slate Pro",
+    "midnight": "Midnight Glass",
+}
+
+
 BG = "#f6f8fb"
 SURFACE = "#ffffff"
+SURFACE_VARIANT = "#edf4ef"
 BORDER = "#d8dee8"
 ACCENT = "#2e7d32"
+ON_ACCENT = "#ffffff"
+ACCENT_CONTAINER = "#d6efe1"
+BTN_TONAL = "#e8f1eb"
+BTN_TONAL_ACTIVE = "#d9e7df"
+INPUT_BG = "#f7fcf8"
+WARNING_BG = "#fff4e4"
+WARNING_BORDER = "#efd3ad"
+WARNING_TEXT = "#7b4b00"
 TEXT = "#1f2937"
 SUBTEXT = "#5f6b7a"
 DANGER = "#c62828"
 SUCCESS = "#2e7d32"
 
 FONT_MONO = ("Consolas", 10)
-FONT_TITLE = ("Segoe UI", 20, "bold")
+FONT_TITLE = ("Segoe UI Semibold", 24)
 FONT_LABEL = ("Segoe UI", 10)
-FONT_BTN = ("Segoe UI", 10, "bold")
+FONT_BTN = ("Segoe UI Semibold", 10)
 FONT_SMALL = ("Segoe UI", 9)
 
 
@@ -41,7 +116,6 @@ class VaultLockApp(tk.Tk):
         super().__init__()
         self.title("vault32")
         self.resizable(False, False)
-        self.configure(bg=BG)
 
         # Use the new vault32 paths, but keep legacy VaultLock locations if already in use.
         default_vault_dir = os.path.join(os.path.expanduser("~"), "vault32Private")
@@ -68,8 +142,11 @@ class VaultLockApp(tk.Tk):
         self._inactivity_lock_seconds = INACTIVITY_LOCK_SECONDS
         self._security_profile = "fast"
         self._kdf_iterations = SECURITY_PROFILES[self._security_profile]
+        self._theme_name = "forest"
 
         self._load_settings()
+        self._apply_theme_globals()
+        self.configure(bg=BG)
 
         self._center()
         self._build()
@@ -124,6 +201,9 @@ class VaultLockApp(tk.Tk):
             if profile in SECURITY_PROFILES:
                 self._security_profile = profile
                 self._kdf_iterations = SECURITY_PROFILES[profile]
+            theme = str(data.get("theme", self._theme_name)).lower()
+            if theme in THEMES:
+                self._theme_name = theme
         except Exception:
             pass
 
@@ -131,12 +211,66 @@ class VaultLockApp(tk.Tk):
         data = {
             "auto_lock_minutes": self._inactivity_lock_seconds // 60,
             "security_profile": self._security_profile,
+            "theme": self._theme_name,
         }
         try:
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
             self._alert_error("Settings", f"Could not save settings:\n{e}")
+
+    def _apply_theme_globals(self):
+        global BG, SURFACE, SURFACE_VARIANT, BORDER, ACCENT, ON_ACCENT
+        global ACCENT_CONTAINER, BTN_TONAL, BTN_TONAL_ACTIVE, INPUT_BG
+        global WARNING_BG, WARNING_BORDER, WARNING_TEXT, TEXT, SUBTEXT, DANGER, SUCCESS
+        palette = THEMES.get(self._theme_name, THEMES["forest"])
+        BG = palette["bg"]
+        SURFACE = palette["surface"]
+        SURFACE_VARIANT = palette["surface_variant"]
+        BORDER = palette["border"]
+        ACCENT = palette["accent"]
+        ON_ACCENT = palette["on_accent"]
+        ACCENT_CONTAINER = palette["accent_container"]
+        BTN_TONAL = palette["button_tonal"]
+        BTN_TONAL_ACTIVE = palette["button_tonal_active"]
+        INPUT_BG = palette["input_bg"]
+        WARNING_BG = palette["warning_bg"]
+        WARNING_BORDER = palette["warning_border"]
+        WARNING_TEXT = palette["warning_text"]
+        TEXT = palette["text"]
+        SUBTEXT = palette["subtext"]
+        DANGER = palette["danger"]
+        SUCCESS = palette["success"]
+
+    def _apply_theme_live(self):
+        state = {
+            "tab": self._tab.get() if hasattr(self, "_tab") else "vault",
+            "lock_path": self._lock_path.get() if hasattr(self, "_lock_path") else "",
+            "lock_pw": self._lock_pw.get() if hasattr(self, "_lock_pw") else "",
+            "lock_pw2": self._lock_pw2.get() if hasattr(self, "_lock_pw2") else "",
+            "unlock_path": self._unlock_path.get() if hasattr(self, "_unlock_path") else "",
+            "unlock_out": self._unlock_out.get() if hasattr(self, "_unlock_out") else "",
+            "unlock_pw": self._unlock_pw.get() if hasattr(self, "_unlock_pw") else "",
+        }
+
+        for child in self.winfo_children():
+            child.destroy()
+
+        self.configure(bg=BG)
+        self._build()
+        self._tab.set(state["tab"])
+        self._switch_tab()
+
+        self._lock_path.set(state["lock_path"])
+        self._lock_pw.set(state["lock_pw"])
+        self._lock_pw2.set(state["lock_pw2"])
+        self._unlock_path.set(state["unlock_path"])
+        self._unlock_out.set(state["unlock_out"])
+        self._unlock_pw.set(state["unlock_pw"])
+
+        if self._vault_unlocked:
+            self._refresh_vault_list()
+        self._update_vault_action_states()
 
     def _center(self):
         w, h = 700, 680
@@ -158,25 +292,42 @@ class VaultLockApp(tk.Tk):
         # ── Divider ──
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
-        # ── Tab strip ──
+        # ── Tab strip (Material segmented control) ──
         self._tab = tk.StringVar(value="vault")
-        tab_row = tk.Frame(self, bg=SURFACE)
+        self._tab_buttons = {}
+        self._tab_hover = {}
+        tab_row = tk.Frame(self, bg=SURFACE, padx=24, pady=10)
         tab_row.pack(fill="x")
+        tab_shadow = tk.Frame(tab_row, bg=BORDER, height=1)
+        tab_shadow.pack(fill="x", padx=1)
+        tab_shell = tk.Frame(tab_row, bg=SURFACE_VARIANT, highlightthickness=1, highlightbackground=BORDER)
+        tab_shell.pack(fill="x")
         for label, val in [
-            ("  PRIVATE VAULT  ", "vault"),
-            ("  SETTINGS  ", "settings"),
-            ("  TOOL: LOCK FOLDER  ", "lock"),
-            ("  TOOL: UNLOCK FILE  ", "unlock"),
+            ("PRIVATE VAULT", "vault"),
+            ("SETTINGS", "settings"),
+            ("LOCK FOLDER", "lock"),
+            ("UNLOCK FILE", "unlock"),
         ]:
-            tk.Radiobutton(
-                tab_row, text=label, variable=self._tab, value=val,
-                command=self._switch_tab,
-                font=FONT_BTN, fg=TEXT, bg=SURFACE,
-                activeforeground=ACCENT, activebackground=SURFACE,
-                selectcolor=BG, relief="flat", bd=0,
-                indicatoron=False, padx=10, pady=10,
-                highlightthickness=0
-            ).pack(side="left")
+            btn = tk.Button(
+                tab_shell,
+                text=label,
+                command=lambda v=val: self._set_tab(v),
+                font=FONT_BTN,
+                fg=SUBTEXT,
+                bg=SURFACE_VARIANT,
+                activeforeground=TEXT,
+                activebackground=ACCENT_CONTAINER,
+                relief="flat",
+                bd=0,
+                cursor="hand2",
+                padx=12,
+                pady=9,
+            )
+            btn.bind("<Enter>", lambda _e, v=val: self._on_tab_hover(v, True))
+            btn.bind("<Leave>", lambda _e, v=val: self._on_tab_hover(v, False))
+            btn.pack(side="left", fill="x", expand=True, padx=2, pady=2)
+            self._tab_buttons[val] = btn
+            self._tab_hover[val] = False
 
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
@@ -186,6 +337,7 @@ class VaultLockApp(tk.Tk):
         self._lock_frame = self._build_lock_panel()
         self._unlock_frame = self._build_unlock_panel()
         self._switch_tab()
+        self._refresh_tab_buttons()
         self._update_vault_action_states()
 
         # ── Progress ──
@@ -202,7 +354,7 @@ class VaultLockApp(tk.Tk):
         style = ttk.Style(self)
         style.theme_use("default")
         style.configure("Vault.Horizontal.TProgressbar",
-                         troughcolor=SURFACE, background=ACCENT,
+                         troughcolor=SURFACE_VARIANT, background=ACCENT,
                          bordercolor=BORDER, lightcolor=ACCENT,
                          darkcolor=ACCENT, thickness=6)
         self._prog = ttk.Progressbar(prog_area, style="Vault.Horizontal.TProgressbar",
@@ -261,16 +413,16 @@ class VaultLockApp(tk.Tk):
         self._btn(row2b, "🗑 REMOVE", self._vault_remove_selected).pack(side="left", padx=(0, 8))
         self._btn(row2b, "↻ REFRESH", self._refresh_vault_list).pack(side="left")
 
-        task = tk.Frame(frame, bg="#f8fafc", highlightthickness=1, highlightbackground=BORDER)
+        task = tk.Frame(frame, bg=SURFACE_VARIANT, highlightthickness=1, highlightbackground=BORDER)
         task.pack(fill="x", pady=(0, 12))
-        task_row = tk.Frame(task, bg="#f8fafc")
+        task_row = tk.Frame(task, bg=SURFACE_VARIANT)
         task_row.pack(fill="x")
         self._task_msg = tk.StringVar(value="Ready. No active operation.")
         tk.Label(task_row, textvariable=self._task_msg, font=FONT_SMALL,
-                 fg=SUBTEXT, bg="#f8fafc", anchor="w", padx=10, pady=6).pack(side="left", fill="x", expand=True)
+             fg=SUBTEXT, bg=SURFACE_VARIANT, anchor="w", padx=10, pady=6).pack(side="left", fill="x", expand=True)
         self._task_pct = tk.StringVar(value="0%")
         tk.Label(task_row, textvariable=self._task_pct, font=FONT_SMALL,
-                 fg=SUBTEXT, bg="#f8fafc", anchor="e", padx=10, pady=6).pack(side="right")
+             fg=SUBTEXT, bg=SURFACE_VARIANT, anchor="e", padx=10, pady=6).pack(side="right")
 
         tk.Label(frame, text="FILES IN PRIVATE VAULT", font=FONT_LABEL,
                  fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
@@ -298,10 +450,10 @@ class VaultLockApp(tk.Tk):
         self._vault_list.bind("<Double-Button-1>", self._vault_open_selected)
         self._vault_list.bind("<<ListboxSelect>>", self._on_vault_selection_changed)
 
-        details = tk.Frame(frame, bg="#f8fafc", highlightthickness=1, highlightbackground=BORDER)
+        details = tk.Frame(frame, bg=SURFACE_VARIANT, highlightthickness=1, highlightbackground=BORDER)
         details.pack(fill="x", pady=(0, 12))
         tk.Label(details, text="SELECTED ITEM DETAILS", font=FONT_SMALL,
-                 fg=SUBTEXT, bg="#f8fafc", anchor="w", padx=10, pady=6).pack(fill="x")
+             fg=SUBTEXT, bg=SURFACE_VARIANT, anchor="w", padx=10, pady=6).pack(fill="x")
 
         self._details_name = tk.StringVar(value="Name: -")
         self._details_type = tk.StringVar(value="Type: -")
@@ -310,23 +462,23 @@ class VaultLockApp(tk.Tk):
         self._details_path = tk.StringVar(value="Path: -")
 
         tk.Label(details, textvariable=self._details_name, font=FONT_SMALL,
-                 fg=TEXT, bg="#f8fafc", anchor="w", padx=10).pack(fill="x")
+               fg=TEXT, bg=SURFACE_VARIANT, anchor="w", padx=10).pack(fill="x")
         tk.Label(details, textvariable=self._details_type, font=FONT_SMALL,
-                 fg=TEXT, bg="#f8fafc", anchor="w", padx=10).pack(fill="x")
+               fg=TEXT, bg=SURFACE_VARIANT, anchor="w", padx=10).pack(fill="x")
         tk.Label(details, textvariable=self._details_size, font=FONT_SMALL,
-                 fg=TEXT, bg="#f8fafc", anchor="w", padx=10).pack(fill="x")
+               fg=TEXT, bg=SURFACE_VARIANT, anchor="w", padx=10).pack(fill="x")
         tk.Label(details, textvariable=self._details_mod, font=FONT_SMALL,
-                 fg=TEXT, bg="#f8fafc", anchor="w", padx=10).pack(fill="x")
+               fg=TEXT, bg=SURFACE_VARIANT, anchor="w", padx=10).pack(fill="x")
         tk.Label(details, textvariable=self._details_path, font=FONT_SMALL,
-                 fg=SUBTEXT, bg="#f8fafc", anchor="w", justify="left", wraplength=620,
+               fg=SUBTEXT, bg=SURFACE_VARIANT, anchor="w", justify="left", wraplength=620,
                  padx=10, pady=0).pack(fill="x", pady=(0, 8))
 
-        note = tk.Frame(frame, bg="#fff7d6", highlightthickness=1,
-                        highlightbackground="#e8d594")
+        note = tk.Frame(frame, bg=WARNING_BG, highlightthickness=1,
+                highlightbackground=WARNING_BORDER)
         note.pack(fill="x", pady=(12, 0))
         tk.Label(note, text="The private vault auto-locks when you exit the app.\n"
                             "Use TOOL tabs only when you want manual multi-folder operations.",
-                 font=FONT_SMALL, fg="#6f5b00", bg="#fff7d6",
+               font=FONT_SMALL, fg=WARNING_TEXT, bg=WARNING_BG,
                  justify="left", padx=10, pady=8).pack(anchor="w")
 
         return frame
@@ -357,9 +509,7 @@ class VaultLockApp(tk.Tk):
         tk.Label(frame, text="SETTINGS", font=FONT_LABEL,
                  fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
 
-        card = tk.Frame(frame, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER,
-                        padx=14, pady=14)
-        card.pack(fill="x", pady=(6, 12))
+        card = self._material_card(frame, pady=(6, 12))
 
         tk.Label(card, text="AUTO-LOCK TIMEOUT", font=FONT_SMALL,
                  fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
@@ -374,7 +524,7 @@ class VaultLockApp(tk.Tk):
             to=240,
             textvariable=self._idle_minutes_var,
             font=FONT_MONO,
-            bg="#f8fafc",
+            bg=INPUT_BG,
             fg=TEXT,
             insertbackground=ACCENT,
             relief="flat",
@@ -404,6 +554,24 @@ class VaultLockApp(tk.Tk):
         )
         sec_menu.pack(side="left", padx=(0, 8))
 
+        tk.Label(card, text="THEME", font=FONT_SMALL,
+                 fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x", pady=(10, 0))
+        row_theme = tk.Frame(card, bg=SURFACE)
+        row_theme.pack(fill="x", pady=(8, 6))
+
+        self._theme_var = tk.StringVar(value=self._theme_name)
+        theme_menu = ttk.Combobox(
+            row_theme,
+            textvariable=self._theme_var,
+            state="readonly",
+            values=list(THEMES.keys()),
+            width=12,
+            font=FONT_MONO,
+        )
+        theme_menu.pack(side="left", padx=(0, 8))
+        tk.Label(row_theme, text="(applies immediately)", font=FONT_SMALL,
+                 fg=SUBTEXT, bg=SURFACE).pack(side="left")
+
         self._btn(card, "SAVE SETTINGS", self._apply_settings, accent=True).pack(anchor="w", pady=(6, 0))
 
         return frame
@@ -425,24 +593,37 @@ class VaultLockApp(tk.Tk):
             self._alert_error("Invalid value", "Security profile must be fast, balanced, or high.")
             return
 
+        theme = self._theme_var.get().strip().lower()
+        if theme not in THEMES:
+            self._alert_error("Invalid value", "Theme must be forest, slate, or midnight.")
+            return
+
+        theme_changed = theme != self._theme_name
+
         self._inactivity_lock_seconds = minutes * 60
         self._security_profile = profile
         self._kdf_iterations = SECURITY_PROFILES[profile]
+        self._theme_name = theme
         self._save_settings()
         self._refresh_crypto_footer()
         self._touch_activity()
+        if theme_changed:
+            self._apply_theme_globals()
+            self._apply_theme_live()
+
         self._set_status(
-            f"Settings saved. Auto-lock: {minutes} min, Security: {SECURITY_LABELS[profile]}.",
+            f"Settings saved. Auto-lock: {minutes} min, Security: {SECURITY_LABELS[profile]}, Theme: {THEME_LABELS[theme]}.",
             SUCCESS,
         )
 
     def _build_lock_panel(self):
         frame = tk.Frame(self, bg=BG, padx=24, pady=20)
+        card = self._material_card(frame, pady=(6, 0))
 
         # Folder path
-        tk.Label(frame, text="FOLDER TO LOCK", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row1 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text="FOLDER TO LOCK", font=FONT_LABEL,
+                 fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row1 = tk.Frame(card, bg=SURFACE)
         row1.pack(fill="x", pady=(4, 12))
         self._lock_path = tk.StringVar()
         tk.Entry(row1, textvariable=self._lock_path, font=FONT_MONO,
@@ -453,9 +634,9 @@ class VaultLockApp(tk.Tk):
         self._btn(row1, "BROWSE", self._browse_lock_folder).pack(side="left")
 
         # Password
-        tk.Label(frame, text="PASSWORD", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row2 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text="PASSWORD", font=FONT_LABEL,
+             fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row2 = tk.Frame(card, bg=SURFACE)
         row2.pack(fill="x", pady=(4, 12))
         self._lock_pw = tk.StringVar()
         self._lock_pw_entry = tk.Entry(row2, textvariable=self._lock_pw,
@@ -468,9 +649,9 @@ class VaultLockApp(tk.Tk):
         self._btn(row2, "SHOW", lambda: self._toggle_pw(self._lock_pw_entry, "lock")).pack(side="left")
 
         # Confirm password
-        tk.Label(frame, text="CONFIRM PASSWORD", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row3 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text="CONFIRM PASSWORD", font=FONT_LABEL,
+             fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row3 = tk.Frame(card, bg=SURFACE)
         row3.pack(fill="x", pady=(4, 16))
         self._lock_pw2 = tk.StringVar()
         self._lock_pw2_entry = tk.Entry(row3, textvariable=self._lock_pw2,
@@ -483,27 +664,28 @@ class VaultLockApp(tk.Tk):
         self._btn(row3, "SHOW", lambda: self._toggle_pw(self._lock_pw2_entry, "lock2")).pack(side="left")
 
         # Warning note
-        note = tk.Frame(frame, bg="#fff7d6", highlightthickness=1,
-                highlightbackground="#e8d594")
+        note = tk.Frame(card, bg=WARNING_BG, highlightthickness=1,
+            highlightbackground=WARNING_BORDER)
         note.pack(fill="x", pady=(0, 16))
         tk.Label(note, text="⚠  The original folder is NOT deleted automatically.\n"
                              "   Delete it manually after confirming the .locked file.",
-             font=FONT_SMALL, fg="#6f5b00", bg="#fff7d6",
+             font=FONT_SMALL, fg=WARNING_TEXT, bg=WARNING_BG,
                  justify="left", padx=10, pady=8).pack(anchor="w")
 
         # Lock button
-        self._btn(frame, "ENCRYPT & LOCK  →", self._do_lock,
+        self._btn(card, "ENCRYPT & LOCK  →", self._do_lock,
                   accent=True, full=True).pack(fill="x")
 
         return frame
 
     def _build_unlock_panel(self):
         frame = tk.Frame(self, bg=BG, padx=24, pady=20)
+        card = self._material_card(frame, pady=(6, 0))
 
         # .locked file
-        tk.Label(frame, text=".LOCKED FILE", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row1 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text=".LOCKED FILE", font=FONT_LABEL,
+                 fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row1 = tk.Frame(card, bg=SURFACE)
         row1.pack(fill="x", pady=(4, 12))
         self._unlock_path = tk.StringVar()
         tk.Entry(row1, textvariable=self._unlock_path, font=FONT_MONO,
@@ -514,9 +696,9 @@ class VaultLockApp(tk.Tk):
         self._btn(row1, "BROWSE", self._browse_locked_file).pack(side="left")
 
         # Output directory
-        tk.Label(frame, text="RESTORE TO FOLDER", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row2 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text="RESTORE TO FOLDER", font=FONT_LABEL,
+             fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row2 = tk.Frame(card, bg=SURFACE)
         row2.pack(fill="x", pady=(4, 12))
         self._unlock_out = tk.StringVar()
         tk.Entry(row2, textvariable=self._unlock_out, font=FONT_MONO,
@@ -527,9 +709,9 @@ class VaultLockApp(tk.Tk):
         self._btn(row2, "BROWSE", self._browse_out_dir).pack(side="left")
 
         # Password
-        tk.Label(frame, text="PASSWORD", font=FONT_LABEL,
-                 fg=SUBTEXT, bg=BG, anchor="w").pack(fill="x")
-        row3 = tk.Frame(frame, bg=BG)
+        tk.Label(card, text="PASSWORD", font=FONT_LABEL,
+             fg=SUBTEXT, bg=SURFACE, anchor="w").pack(fill="x")
+        row3 = tk.Frame(card, bg=SURFACE)
         row3.pack(fill="x", pady=(4, 24))
         self._unlock_pw = tk.StringVar()
         self._unlock_pw_entry = tk.Entry(row3, textvariable=self._unlock_pw,
@@ -542,17 +724,26 @@ class VaultLockApp(tk.Tk):
         self._btn(row3, "SHOW", lambda: self._toggle_pw(self._unlock_pw_entry, "unlock")).pack(side="left")
 
         # Unlock button
-        self._btn(frame, "DECRYPT & RESTORE  →", self._do_unlock,
+        self._btn(card, "DECRYPT & RESTORE  →", self._do_unlock,
                   accent=True, full=True).pack(fill="x")
 
         return frame
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    def _material_card(self, parent, pady=(0, 12)):
+        shadow = tk.Frame(parent, bg=BORDER, height=1)
+        shadow.pack(fill="x", pady=(pady[0], 0), padx=1)
+        outer = tk.Frame(parent, bg=SURFACE, highlightthickness=1, highlightbackground=BORDER)
+        outer.pack(fill="x", pady=(0, pady[1]))
+        inner = tk.Frame(outer, bg=SURFACE, padx=14, pady=14)
+        inner.pack(fill="both", expand=True)
+        return inner
+
     def _btn(self, parent, text, cmd, accent=False, full=False):
-        fg = "#ffffff" if accent else TEXT
-        bg = ACCENT if accent else SURFACE
-        abg = "#245f27" if accent else "#eef2f8"
+        fg = ON_ACCENT if accent else TEXT
+        bg = ACCENT if accent else BTN_TONAL
+        abg = ACCENT if accent else BTN_TONAL_ACTIVE
         b = tk.Button(parent, text=text, command=cmd,
                       font=FONT_BTN, fg=fg, bg=bg,
                       activeforeground=fg, activebackground=abg,
@@ -561,6 +752,31 @@ class VaultLockApp(tk.Tk):
         if full:
             b.configure(pady=10)
         return b
+
+    def _set_tab(self, value):
+        self._tab.set(value)
+        self._switch_tab()
+
+    def _on_tab_hover(self, value, hovering):
+        if not hasattr(self, "_tab_hover"):
+            return
+        self._tab_hover[value] = hovering
+        self._refresh_tab_buttons()
+
+    def _refresh_tab_buttons(self):
+        if not hasattr(self, "_tab_buttons"):
+            return
+        active = self._tab.get()
+        for value, btn in self._tab_buttons.items():
+            selected = (value == active)
+            hovered = self._tab_hover.get(value, False)
+            bg = ACCENT_CONTAINER if selected else (BTN_TONAL_ACTIVE if hovered else SURFACE_VARIANT)
+            btn.config(
+                fg=TEXT if selected else SUBTEXT,
+                bg=bg,
+                activeforeground=TEXT,
+                activebackground=ACCENT_CONTAINER,
+            )
 
     def _switch_tab(self):
         self._vault_frame.pack_forget()
@@ -586,6 +802,8 @@ class VaultLockApp(tk.Tk):
             self._unlock_frame.pack(fill="x")
             if prog_ready and self._prog.winfo_manager() == "":
                 self._prog.pack(pady=(6, 0))
+
+        self._refresh_tab_buttons()
 
     _pw_visible = {}
 
@@ -699,9 +917,9 @@ class VaultLockApp(tk.Tk):
             return result["value"]
 
         palette = {
-            "info": ("i", "#1565c0", "#e8f1fd"),
-            "warning": ("!", "#b26a00", "#fff4e0"),
-            "error": ("x", "#b71c1c", "#fdecec"),
+            "info": ("i", ACCENT, ACCENT_CONTAINER),
+            "warning": ("!", WARNING_TEXT, WARNING_BG),
+            "error": ("x", DANGER, "#fdecec"),
         }
         icon_text, icon_fg, icon_bg = palette.get(kind, palette["info"])
 
@@ -743,9 +961,9 @@ class VaultLockApp(tk.Tk):
 
         for i, label in enumerate(reversed(buttons)):
             primary = (i == len(buttons) - 1)
-            fg = "#ffffff" if primary else TEXT
-            bg = ACCENT if primary else "#eef2f8"
-            active_bg = "#245f27" if primary else "#e2e8f0"
+            fg = ON_ACCENT if primary else TEXT
+            bg = ACCENT if primary else BTN_TONAL
+            active_bg = ACCENT if primary else BTN_TONAL_ACTIVE
             tk.Button(
                 btn_row,
                 text=label,
@@ -802,7 +1020,7 @@ class VaultLockApp(tk.Tk):
 
         top = tk.Frame(shell, bg=SURFACE, padx=16, pady=14)
         top.pack(fill="x")
-        tk.Label(top, text="*", fg="#1565c0", bg="#e8f1fd",
+        tk.Label(top, text="*", fg=ACCENT, bg=ACCENT_CONTAINER,
                  font=("Segoe UI", 12, "bold"), width=2).pack(side="left", padx=(0, 10))
         tk.Label(top, text=title, font=("Segoe UI", 12, "bold"),
                  fg=TEXT, bg=SURFACE, anchor="w").pack(side="left", fill="x", expand=True)
@@ -819,7 +1037,7 @@ class VaultLockApp(tk.Tk):
         entry_wrap = tk.Frame(body, bg=SURFACE)
         entry_wrap.pack(fill="x", pady=(10, 0))
         entry = tk.Entry(entry_wrap, textvariable=pw_var, show="•", font=FONT_MONO,
-                         bg="#f8fafc", fg=TEXT, insertbackground=ACCENT,
+                         bg=INPUT_BG, fg=TEXT, insertbackground=ACCENT,
                          relief="flat", bd=0, highlightthickness=1,
                          highlightbackground=BORDER, highlightcolor=ACCENT)
         entry.pack(side="left", fill="x", expand=True, ipady=7, padx=(0, 8))
@@ -837,9 +1055,9 @@ class VaultLockApp(tk.Tk):
             command=toggle_show,
             font=FONT_BTN,
             fg=TEXT,
-            bg="#eef2f8",
+            bg=BTN_TONAL,
             activeforeground=TEXT,
-            activebackground="#e2e8f0",
+            activebackground=BTN_TONAL_ACTIVE,
             relief="flat",
             bd=0,
             padx=12,
@@ -867,9 +1085,9 @@ class VaultLockApp(tk.Tk):
             command=choose_cancel,
             font=FONT_BTN,
             fg=TEXT,
-            bg="#eef2f8",
+            bg=BTN_TONAL,
             activeforeground=TEXT,
-            activebackground="#e2e8f0",
+            activebackground=BTN_TONAL_ACTIVE,
             relief="flat",
             bd=0,
             padx=14,
@@ -882,10 +1100,10 @@ class VaultLockApp(tk.Tk):
             text="Continue",
             command=choose_ok,
             font=FONT_BTN,
-            fg="#ffffff",
+            fg=ON_ACCENT,
             bg=ACCENT,
-            activeforeground="#ffffff",
-            activebackground="#245f27",
+            activeforeground=ON_ACCENT,
+            activebackground=ACCENT,
             relief="flat",
             bd=0,
             padx=14,
@@ -920,7 +1138,7 @@ class VaultLockApp(tk.Tk):
 
         top = tk.Frame(shell, bg=SURFACE, padx=16, pady=14)
         top.pack(fill="x")
-        tk.Label(top, text="T", fg="#1565c0", bg="#e8f1fd",
+        tk.Label(top, text="T", fg=ACCENT, bg=ACCENT_CONTAINER,
                  font=("Segoe UI", 12, "bold"), width=2).pack(side="left", padx=(0, 10))
         tk.Label(top, text=title, font=("Segoe UI", 12, "bold"),
                  fg=TEXT, bg=SURFACE, anchor="w").pack(side="left", fill="x", expand=True)
@@ -935,7 +1153,7 @@ class VaultLockApp(tk.Tk):
 
         name_var = tk.StringVar(value=initial_value)
         entry = tk.Entry(body, textvariable=name_var, font=FONT_MONO,
-                         bg="#f8fafc", fg=TEXT, insertbackground=ACCENT,
+                         bg=INPUT_BG, fg=TEXT, insertbackground=ACCENT,
                          relief="flat", bd=0, highlightthickness=1,
                          highlightbackground=BORDER, highlightcolor=ACCENT)
         entry.pack(fill="x", ipady=7, pady=(10, 0))
@@ -959,9 +1177,9 @@ class VaultLockApp(tk.Tk):
             command=choose_cancel,
             font=FONT_BTN,
             fg=TEXT,
-            bg="#eef2f8",
+            bg=BTN_TONAL,
             activeforeground=TEXT,
-            activebackground="#e2e8f0",
+            activebackground=BTN_TONAL_ACTIVE,
             relief="flat",
             bd=0,
             padx=14,
@@ -974,10 +1192,10 @@ class VaultLockApp(tk.Tk):
             text="Rename",
             command=choose_ok,
             font=FONT_BTN,
-            fg="#ffffff",
+            fg=ON_ACCENT,
             bg=ACCENT,
-            activeforeground="#ffffff",
-            activebackground="#245f27",
+            activeforeground=ON_ACCENT,
+            activebackground=ACCENT,
             relief="flat",
             bd=0,
             padx=14,
