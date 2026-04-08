@@ -13,6 +13,7 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -428,6 +429,9 @@ class VaultLockApp(QMainWindow):
             font-family: 'Segoe UI';
             font-size: 10pt;
         }}
+        QLabel {{
+            background: transparent;
+        }}
         QFrame#Card {{
             background: {t['surface']};
             border: 1px solid {t['border']};
@@ -595,7 +599,7 @@ class VaultLockApp(QMainWindow):
         theme = self._theme_combo.currentText().strip().lower()
 
         if profile not in SECURITY_PROFILES:
-            self._alert_error("Invalid value", "Security profile must be fast, balanced, or high.")
+            self._alert_error("Invalid value", "Security profile must be ultra, fast, balanced, or high.")
             return
         if theme not in THEMES:
             self._alert_error("Invalid value", "Theme must be forest, slate, or midnight.")
@@ -647,54 +651,84 @@ class VaultLockApp(QMainWindow):
         if hasattr(self, "_vault_path_edit"):
             self._vault_path_edit.setText(self._vault_dir)
 
-    def _select_known_vault_dir(self):
-        if not self._known_vault_dirs:
+    def _existing_known_vault_dirs(self):
+        out = []
+        for path in self._known_vault_dirs:
+            norm = self._normalize_vault_dir(path)
+            if os.path.isdir(norm) or os.path.isfile(norm + ".locked"):
+                out.append(norm)
+        return out
+
+    def _startup_vault_choice(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Vault")
+        dialog.setMinimumWidth(680)
+
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Choose an existing vault to open:"))
+
+        existing = self._existing_known_vault_dirs()
+        vault_list = QListWidget()
+        for path in existing:
+            state = "Unlocked folder" if os.path.isdir(path) else "Locked file"
+            item = QListWidgetItem(f"{path}  ({state})")
+            item.setData(Qt.UserRole, path)
+            vault_list.addItem(item)
+
+        if existing:
+            vault_list.setCurrentRow(0)
+            layout.addWidget(vault_list)
+        else:
+            layout.addWidget(QLabel("No remembered vaults found. Use Browse Existing or Create New Vault."))
+
+        buttons = QHBoxLayout()
+        btn_open = QPushButton("Open Selected")
+        btn_browse = QPushButton("Browse Existing...")
+        btn_new = QPushButton("Create New Vault")
+        btn_cancel = QPushButton("Cancel")
+
+        for btn in (btn_open, btn_browse, btn_new, btn_cancel):
+            btn.setCursor(Qt.PointingHandCursor)
+
+        buttons.addWidget(btn_open)
+        buttons.addWidget(btn_browse)
+        buttons.addStretch(1)
+        buttons.addWidget(btn_new)
+        buttons.addWidget(btn_cancel)
+        layout.addLayout(buttons)
+
+        result = {"value": None}
+
+        def choose_selected():
+            current = vault_list.currentItem()
+            if current is None:
+                self._alert_info("Select Vault", "Select a vault from the list first.")
+                return
+            result["value"] = current.data(Qt.UserRole)
+            dialog.accept()
+
+        def choose_browse():
+            chosen = self._choose_existing_vault_dir()
+            if not chosen:
+                return
+            result["value"] = chosen
+            dialog.accept()
+
+        def choose_new():
+            result["value"] = "new"
+            dialog.accept()
+
+        btn_open.clicked.connect(choose_selected)
+        btn_browse.clicked.connect(choose_browse)
+        btn_new.clicked.connect(choose_new)
+        btn_cancel.clicked.connect(dialog.reject)
+        vault_list.itemDoubleClicked.connect(lambda _item: choose_selected())
+
+        if dialog.exec() != QDialog.Accepted:
             return None
-
-        options = list(self._known_vault_dirs) + ["<Browse for another vault...>"]
-        current = 0
-        if self._vault_dir in self._known_vault_dirs:
-            current = self._known_vault_dirs.index(self._vault_dir)
-
-        selected, ok = QInputDialog.getItem(
-            self,
-            "Known Vaults",
-            "Choose a remembered vault location:",
-            options,
-            current,
-            False,
-        )
-        if not ok:
-            return None
-        if selected == "<Browse for another vault...>":
-            return "browse"
-        return self._normalize_vault_dir(selected)
-
-    def _prompt_startup_mode(self):
-        box = QMessageBox(self)
-        box.setWindowTitle("Select Vault")
-        box.setText("Choose how to start:")
-        box.setInformativeText("Create a new vault or open an existing vault.")
-        new_btn = box.addButton("Create New Vault", QMessageBox.AcceptRole)
-        open_btn = box.addButton("Open Existing Vault", QMessageBox.ActionRole)
-        cancel_btn = box.addButton(QMessageBox.Cancel)
-        box.setDefaultButton(open_btn)
-        box.exec()
-
-        clicked = box.clickedButton()
-        if clicked == new_btn:
-            return "new"
-        if clicked == open_btn:
-            return "open"
-        if clicked == cancel_btn:
-            return None
-        return None
+        return result["value"]
 
     def _choose_existing_vault_dir(self):
-        selected_known = self._select_known_vault_dir()
-        if selected_known and selected_known != "browse":
-            return selected_known
-
         box = QMessageBox(self)
         box.setWindowTitle("Open Existing Vault")
         box.setText("Select the existing vault format:")
@@ -749,12 +783,12 @@ class VaultLockApp(QMainWindow):
 
     def _startup_vault_flow(self):
         while True:
-            mode = self._prompt_startup_mode()
-            if mode is None:
+            choice = self._startup_vault_choice()
+            if choice is None:
                 self.close()
                 return
 
-            if mode == "new":
+            if choice == "new":
                 vault_dir = self._choose_new_vault_dir()
                 if not vault_dir:
                     continue
@@ -769,10 +803,7 @@ class VaultLockApp(QMainWindow):
                     return
                 continue
 
-            vault_dir = self._choose_existing_vault_dir()
-            if not vault_dir:
-                continue
-            self._set_active_vault_dir(vault_dir)
+            self._set_active_vault_dir(choice)
             if self._unlock_private_vault_interactive(startup=True):
                 return
 

@@ -9,6 +9,7 @@ import shutil
 import struct
 import tarfile
 import tempfile
+import time
 import zipfile
 
 from cryptography.hazmat.primitives import hashes
@@ -23,14 +24,16 @@ KEY_LEN = 32
 MAGIC_V1 = b"VAULTLOCK\x01"
 MAGIC_V2 = b"VAULTLOCK\x02"
 MAGIC_V3 = b"VAULTLOCK\x03"
-STREAM_CHUNK_SIZE = 32 * 1024 * 1024
+STREAM_CHUNK_SIZE = 64 * 1024 * 1024
 INACTIVITY_LOCK_SECONDS = 5 * 60
 SECURITY_PROFILES = {
+    "ultra": 75_000,
     "fast": 150_000,
     "balanced": 250_000,
     "high": 600_000,
 }
 SECURITY_LABELS = {
+    "ultra": "Ultra",
     "fast": "Fast",
     "balanced": "Balanced",
     "high": "High",
@@ -157,79 +160,90 @@ class _ProgressFileReader:
 
 
 def lock_folder(folder_path: str, password: str, progress_cb=None, kdf_iterations: int = ITER_COUNT) -> str:
-    """Zip folder on disk -> chunked AES-256-GCM encrypt (v2) to .locked file."""
+    """Stream TAR folder -> chunked AES-256-GCM encrypt (v3) to .locked file."""
     folder_path = os.path.normpath(folder_path)
     if not os.path.isdir(folder_path):
         raise ValueError("Not a valid folder.")
 
-    # Collect files
+    # Collect files and directories.
     all_files = []
-    for root, _, files in os.walk(folder_path):
+    all_dirs = []
+    total_file_bytes = 0
+    for root, dirs, files in os.walk(folder_path):
+        for dir_name in dirs:
+            all_dirs.append(os.path.join(root, dir_name))
         for file_name in files:
-            all_files.append(os.path.join(root, file_name))
+            path = os.path.join(root, file_name)
+            all_files.append(path)
+            try:
+                total_file_bytes += os.path.getsize(path)
+            except OSError:
+                pass
 
-    total = len(all_files)
+    if progress_cb:
+        progress_cb(8)
 
-    fd, temp_zip = tempfile.mkstemp(prefix="vaultlock_", suffix=".zip")
-    os.close(fd)
+    salt = secrets.token_bytes(SALT_LEN)
+    key = derive_key(password, salt, kdf_iterations)
+    locked_path = folder_path + ".locked"
+    parent_dir = os.path.dirname(folder_path)
+    root_arc = os.path.relpath(folder_path, parent_dir)
+    copied_bytes = 0
 
-    try:
-        with zipfile.ZipFile(temp_zip, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-            if total == 0:
-                zf.writestr(os.path.basename(folder_path) + "/", "")
-                if progress_cb:
-                    progress_cb(70)
-            else:
-                for i, filepath in enumerate(all_files):
-                    arcname = os.path.relpath(filepath, os.path.dirname(folder_path))
-                    compress_type, compress_level = choose_zip_strategy(filepath)
-                    if compress_level is None:
-                        zf.write(filepath, arcname, compress_type=compress_type)
-                    else:
-                        zf.write(filepath, arcname, compress_type=compress_type, compresslevel=compress_level)
-                    if progress_cb:
-                        progress_cb(int((i + 1) / total * 70))
+    def on_plaintext_bytes(count):
+        nonlocal copied_bytes
+        copied_bytes += count
+        if progress_cb and total_file_bytes > 0:
+            progress_cb(10 + int((copied_bytes / total_file_bytes) * 88))
 
-        if progress_cb:
-            progress_cb(75)
-        salt = secrets.token_bytes(SALT_LEN)
-        key = derive_key(password, salt, kdf_iterations)
+    with open(locked_path, "wb") as lf:
+        lf.write(MAGIC_V3)
+        lf.write(salt)
+        lf.write(struct.pack(">I", STREAM_CHUNK_SIZE))
 
-        if progress_cb:
-            progress_cb(85)
-        aesgcm = AESGCM(key)
-        locked_path = folder_path + ".locked"
-        zip_size = os.path.getsize(temp_zip)
-        processed = 0
-
-        with open(temp_zip, "rb") as rf, open(locked_path, "wb") as lf:
-            lf.write(MAGIC_V2)
-            lf.write(salt)
-            lf.write(struct.pack(">I", STREAM_CHUNK_SIZE))
-
-            while True:
-                chunk = rf.read(STREAM_CHUNK_SIZE)
-                if not chunk:
-                    break
-
-                nonce = secrets.token_bytes(NONCE_LEN)
-                ciphertext = aesgcm.encrypt(nonce, chunk, None)
-                lf.write(nonce)
-                lf.write(struct.pack(">I", len(ciphertext)))
-                lf.write(ciphertext)
-
-                processed += len(chunk)
-                if progress_cb and zip_size > 0:
-                    progress_cb(85 + int((processed / zip_size) * 15))
-
-        if progress_cb:
-            progress_cb(100)
-        return locked_path
-    finally:
+        enc_writer = _EncryptedChunkWriter(lf, key, STREAM_CHUNK_SIZE)
         try:
-            os.remove(temp_zip)
-        except OSError:
-            pass
+            with tarfile.open(fileobj=enc_writer, mode="w|") as tf:
+                # Always include root directory entry.
+                root_info = tarfile.TarInfo(root_arc + "/")
+                root_info.type = tarfile.DIRTYPE
+                try:
+                    root_stat = os.stat(folder_path)
+                    root_info.mtime = int(root_stat.st_mtime)
+                    root_info.mode = root_stat.st_mode & 0o777
+                except OSError:
+                    root_info.mtime = int(time.time())
+                    root_info.mode = 0o755
+                tf.addfile(root_info)
+
+                for dir_path in all_dirs:
+                    arcname = os.path.relpath(dir_path, parent_dir).replace("\\", "/") + "/"
+                    info = tarfile.TarInfo(arcname)
+                    info.type = tarfile.DIRTYPE
+                    try:
+                        st = os.stat(dir_path)
+                        info.mtime = int(st.st_mtime)
+                        info.mode = st.st_mode & 0o777
+                    except OSError:
+                        info.mtime = int(time.time())
+                        info.mode = 0o755
+                    tf.addfile(info)
+
+                for file_path in all_files:
+                    arcname = os.path.relpath(file_path, parent_dir).replace("\\", "/")
+                    st = os.stat(file_path)
+                    info = tarfile.TarInfo(arcname)
+                    info.size = st.st_size
+                    info.mtime = int(st.st_mtime)
+                    info.mode = st.st_mode & 0o777
+                    with open(file_path, "rb") as rf:
+                        tf.addfile(info, fileobj=_ProgressFileReader(rf, on_plaintext_bytes))
+        finally:
+            enc_writer.close()
+
+    if progress_cb:
+        progress_cb(100)
+    return locked_path
 
 
 def unlock_file(locked_path: str, password: str, out_dir: str, progress_cb=None, kdf_iterations_list=None) -> str:
@@ -250,7 +264,7 @@ def unlock_file(locked_path: str, password: str, out_dir: str, progress_cb=None,
             salt = lf.read(SALT_LEN)
             nonce = lf.read(NONCE_LEN)
             ciphertext = lf.read()
-            candidate_iterations = kdf_iterations_list or [ITER_COUNT, 250_000, 600_000]
+            candidate_iterations = kdf_iterations_list or [75_000, ITER_COUNT, 250_000, 600_000]
             if progress_cb:
                 progress_cb(60)
 
@@ -288,7 +302,7 @@ def unlock_file(locked_path: str, password: str, out_dir: str, progress_cb=None,
                 raise ValueError("Corrupted VaultLock file.")
 
             _chunk_size = struct.unpack(">I", chunk_size_buf)[0]
-            candidates = kdf_iterations_list or [ITER_COUNT, 250_000, 600_000]
+            candidates = kdf_iterations_list or [75_000, ITER_COUNT, 250_000, 600_000]
             success = False
 
             # Extract to a temp directory first; move into destination only on success.
@@ -384,7 +398,7 @@ def unlock_file(locked_path: str, password: str, out_dir: str, progress_cb=None,
         os.close(fd)
 
         try:
-            candidate_iterations = kdf_iterations_list or [ITER_COUNT, 250_000, 600_000]
+            candidate_iterations = kdf_iterations_list or [75_000, ITER_COUNT, 250_000, 600_000]
             success = False
             for iters in dict.fromkeys(candidate_iterations):
                 lf.seek(magic_len + SALT_LEN + 4)
