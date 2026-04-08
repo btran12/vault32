@@ -26,7 +26,7 @@ try {
 
     if ($InstallDeps) {
         & $py[0] $py[1] pip install --upgrade pip setuptools wheel
-        & $py[0] $py[1] pip install pyinstaller cryptography
+        & $py[0] $py[1] pip install pyinstaller cryptography pyside6
     }
 
     switch ($Mode) {

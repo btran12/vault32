@@ -10,7 +10,7 @@ It provides:
 ## Project Structure
 
 - `vaultlock.py` - app launcher/entrypoint
-- `vl_gui.py` - Tkinter GUI and user workflows
+- `vl_gui.py` - PySide6 GUI and user workflows
 - `vl_crypto.py` - encryption/decryption core
 - `build.ps1` - build helper script for packaging
 - `vault32.spec` - reusable PyInstaller spec
@@ -20,13 +20,13 @@ It provides:
 
 - Windows
 - Python 3.10+ recommended
-- Python package: `cryptography`
+- Python packages: `cryptography`, `PySide6`
 
 Install dependencies:
 
 ```powershell
 py -m pip install --upgrade pip setuptools wheel
-py -m pip install cryptography
+py -m pip install cryptography pyside6
 ```
 
 ## Run From Source
@@ -91,7 +91,7 @@ Build modes:
 ### Option B: Build directly with PyInstaller
 
 ```powershell
-py -m pip install pyinstaller cryptography
+py -m pip install pyinstaller cryptography pyside6
 py -m PyInstaller --noconfirm --clean --windowed --name vault32 --collect-all cryptography vaultlock.py
 ```
 
@@ -106,6 +106,6 @@ py -m PyInstaller --noconfirm --clean --windowed --name vault32 --collect-all cr
 
 - If build fails due to missing modules, reinstall dependencies:
   ```powershell
-  py -m pip install --upgrade pip setuptools wheel pyinstaller cryptography
+  py -m pip install --upgrade pip setuptools wheel pyinstaller cryptography pyside6
   ```
 - If Windows Defender flags a fresh EXE, rebuild and sign if needed for distribution in managed environments.
