@@ -3,6 +3,7 @@ VaultLock crypto core: key derivation, lock, and unlock operations.
 """
 
 import io
+import json
 import os
 import secrets
 import shutil
@@ -24,6 +25,7 @@ KEY_LEN = 32
 MAGIC_V1 = b"VAULTLOCK\x01"
 MAGIC_V2 = b"VAULTLOCK\x02"
 MAGIC_V3 = b"VAULTLOCK\x03"
+MAGIC_V4 = b"VAULTLOCK\x04"
 STREAM_CHUNK_SIZE = 64 * 1024 * 1024
 INACTIVITY_LOCK_SECONDS = 5 * 60
 SECURITY_PROFILES = {
@@ -159,26 +161,101 @@ class _ProgressFileReader:
         return data
 
 
+def _safe_target_path(base_dir: str, rel_path: str) -> str:
+    target = os.path.normpath(os.path.join(base_dir, rel_path))
+    if os.path.commonpath([target, base_dir]) != base_dir:
+        raise ValueError("Corrupted archive path.")
+    return target
+
+
+def _build_manifest(folder_path: str):
+    folder_path = os.path.normpath(folder_path)
+    parent_dir = os.path.dirname(folder_path)
+    root_arc = os.path.relpath(folder_path, parent_dir).replace("\\", "/")
+    entries = []
+
+    # Include root directory entry.
+    try:
+        st = os.stat(folder_path)
+        mode = st.st_mode & 0o777
+        mtime = int(st.st_mtime)
+    except OSError:
+        mode = 0o755
+        mtime = int(time.time())
+    entries.append({"type": "dir", "path": root_arc, "mode": mode, "mtime": mtime})
+
+    total_file_bytes = 0
+    file_count = 0
+    for root, dirs, files in os.walk(folder_path):
+        dirs.sort()
+        files.sort()
+
+        for dir_name in dirs:
+            abs_dir = os.path.join(root, dir_name)
+            rel = os.path.relpath(abs_dir, parent_dir).replace("\\", "/")
+            try:
+                st = os.stat(abs_dir)
+                mode = st.st_mode & 0o777
+                mtime = int(st.st_mtime)
+            except OSError:
+                mode = 0o755
+                mtime = int(time.time())
+            entries.append({"type": "dir", "path": rel, "mode": mode, "mtime": mtime})
+
+        for file_name in files:
+            abs_file = os.path.join(root, file_name)
+            rel = os.path.relpath(abs_file, parent_dir).replace("\\", "/")
+            st = os.stat(abs_file)
+            size = int(st.st_size)
+            total_file_bytes += size
+            file_count += 1
+            entries.append(
+                {
+                    "type": "file",
+                    "path": rel,
+                    "size": size,
+                    "mode": st.st_mode & 0o777,
+                    "mtime": int(st.st_mtime),
+                }
+            )
+
+    manifest = {
+        "version": 4,
+        "chunk_size": STREAM_CHUNK_SIZE,
+        "entries": entries,
+    }
+    return manifest, total_file_bytes, file_count
+
+
+def _read_encrypted_chunk(in_file, aesgcm: AESGCM) -> tuple[bytes, int]:
+    nonce = in_file.read(NONCE_LEN)
+    if len(nonce) != NONCE_LEN:
+        raise ValueError("Corrupted VaultLock file.")
+
+    ct_len_buf = in_file.read(4)
+    if len(ct_len_buf) != 4:
+        raise ValueError("Corrupted VaultLock file.")
+
+    ct_len = struct.unpack(">I", ct_len_buf)[0]
+    ciphertext = in_file.read(ct_len)
+    if len(ciphertext) != ct_len:
+        raise ValueError("Corrupted VaultLock file.")
+
+    try:
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+    except Exception:
+        raise ValueError("Wrong password or corrupted file.")
+    return plaintext, NONCE_LEN + 4 + ct_len
+
+
 def lock_folder(folder_path: str, password: str, progress_cb=None, kdf_iterations: int = ITER_COUNT) -> str:
-    """Stream TAR folder -> chunked AES-256-GCM encrypt (v3) to .locked file."""
+    """Encrypt folder using v4 manifest + per-file chunk stream to .locked file."""
     folder_path = os.path.normpath(folder_path)
     if not os.path.isdir(folder_path):
         raise ValueError("Not a valid folder.")
 
-    # Collect files and directories.
-    all_files = []
-    all_dirs = []
-    total_file_bytes = 0
-    for root, dirs, files in os.walk(folder_path):
-        for dir_name in dirs:
-            all_dirs.append(os.path.join(root, dir_name))
-        for file_name in files:
-            path = os.path.join(root, file_name)
-            all_files.append(path)
-            try:
-                total_file_bytes += os.path.getsize(path)
-            except OSError:
-                pass
+    manifest, total_file_bytes, file_count = _build_manifest(folder_path)
+    parent_dir = os.path.dirname(folder_path)
 
     if progress_cb:
         progress_cb(8)
@@ -186,60 +263,47 @@ def lock_folder(folder_path: str, password: str, progress_cb=None, kdf_iteration
     salt = secrets.token_bytes(SALT_LEN)
     key = derive_key(password, salt, kdf_iterations)
     locked_path = folder_path + ".locked"
-    parent_dir = os.path.dirname(folder_path)
-    root_arc = os.path.relpath(folder_path, parent_dir)
-    copied_bytes = 0
 
-    def on_plaintext_bytes(count):
-        nonlocal copied_bytes
-        copied_bytes += count
-        if progress_cb and total_file_bytes > 0:
-            progress_cb(10 + int((copied_bytes / total_file_bytes) * 88))
+    manifest_bytes = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
+    manifest_nonce = secrets.token_bytes(NONCE_LEN)
+    aesgcm = AESGCM(key)
+    manifest_ciphertext = aesgcm.encrypt(manifest_nonce, manifest_bytes, None)
 
     with open(locked_path, "wb") as lf:
-        lf.write(MAGIC_V3)
+        lf.write(MAGIC_V4)
         lf.write(salt)
-        lf.write(struct.pack(">I", STREAM_CHUNK_SIZE))
+        lf.write(manifest_nonce)
+        lf.write(struct.pack(">I", len(manifest_ciphertext)))
+        lf.write(manifest_ciphertext)
 
-        enc_writer = _EncryptedChunkWriter(lf, key, STREAM_CHUNK_SIZE)
-        try:
-            with tarfile.open(fileobj=enc_writer, mode="w|") as tf:
-                # Always include root directory entry.
-                root_info = tarfile.TarInfo(root_arc + "/")
-                root_info.type = tarfile.DIRTYPE
-                try:
-                    root_stat = os.stat(folder_path)
-                    root_info.mtime = int(root_stat.st_mtime)
-                    root_info.mode = root_stat.st_mode & 0o777
-                except OSError:
-                    root_info.mtime = int(time.time())
-                    root_info.mode = 0o755
-                tf.addfile(root_info)
+        written_files = 0
+        written_bytes = 0
+        for entry in manifest["entries"]:
+            if entry.get("type") != "file":
+                continue
 
-                for dir_path in all_dirs:
-                    arcname = os.path.relpath(dir_path, parent_dir).replace("\\", "/") + "/"
-                    info = tarfile.TarInfo(arcname)
-                    info.type = tarfile.DIRTYPE
-                    try:
-                        st = os.stat(dir_path)
-                        info.mtime = int(st.st_mtime)
-                        info.mode = st.st_mode & 0o777
-                    except OSError:
-                        info.mtime = int(time.time())
-                        info.mode = 0o755
-                    tf.addfile(info)
+            abs_file = os.path.join(parent_dir, entry["path"])
+            remaining = int(entry["size"])
+            with open(abs_file, "rb") as rf:
+                while remaining > 0:
+                    chunk = rf.read(min(STREAM_CHUNK_SIZE, remaining))
+                    if not chunk:
+                        raise ValueError("Source file changed during lock.")
+                    nonce = secrets.token_bytes(NONCE_LEN)
+                    ciphertext = aesgcm.encrypt(nonce, chunk, None)
+                    lf.write(nonce)
+                    lf.write(struct.pack(">I", len(ciphertext)))
+                    lf.write(ciphertext)
+                    remaining -= len(chunk)
+                    written_bytes += len(chunk)
 
-                for file_path in all_files:
-                    arcname = os.path.relpath(file_path, parent_dir).replace("\\", "/")
-                    st = os.stat(file_path)
-                    info = tarfile.TarInfo(arcname)
-                    info.size = st.st_size
-                    info.mtime = int(st.st_mtime)
-                    info.mode = st.st_mode & 0o777
-                    with open(file_path, "rb") as rf:
-                        tf.addfile(info, fileobj=_ProgressFileReader(rf, on_plaintext_bytes))
-        finally:
-            enc_writer.close()
+                    if progress_cb and total_file_bytes > 0:
+                        progress_cb(10 + int((written_bytes / total_file_bytes) * 88))
+
+            written_files += 1
+
+        if file_count != written_files:
+            raise ValueError("Locking failed: manifest mismatch.")
 
     if progress_cb:
         progress_cb(100)
@@ -291,6 +355,117 @@ def unlock_file(locked_path: str, password: str, out_dir: str, progress_cb=None,
             if progress_cb:
                 progress_cb(100)
             return out_dir
+
+        if magic == MAGIC_V4:
+            if progress_cb:
+                progress_cb(20)
+
+            salt = lf.read(SALT_LEN)
+            manifest_nonce = lf.read(NONCE_LEN)
+            manifest_len_buf = lf.read(4)
+            if len(salt) != SALT_LEN or len(manifest_nonce) != NONCE_LEN or len(manifest_len_buf) != 4:
+                raise ValueError("Corrupted VaultLock file.")
+
+            manifest_len = struct.unpack(">I", manifest_len_buf)[0]
+            manifest_ciphertext = lf.read(manifest_len)
+            if len(manifest_ciphertext) != manifest_len:
+                raise ValueError("Corrupted VaultLock file.")
+
+            candidates = kdf_iterations_list or [75_000, ITER_COUNT, 250_000, 600_000]
+            manifest = None
+            active_key = None
+            for iters in dict.fromkeys(candidates):
+                try:
+                    key = derive_key(password, salt, iters)
+                    aesgcm = AESGCM(key)
+                    manifest_plain = aesgcm.decrypt(manifest_nonce, manifest_ciphertext, None)
+                    manifest = json.loads(manifest_plain.decode("utf-8"))
+                    active_key = key
+                    break
+                except Exception:
+                    manifest = None
+                    active_key = None
+
+            if manifest is None or active_key is None:
+                raise ValueError("Wrong password or corrupted file.")
+
+            entries = manifest.get("entries", [])
+            chunk_size = int(manifest.get("chunk_size", STREAM_CHUNK_SIZE))
+            if not isinstance(entries, list) or chunk_size <= 0:
+                raise ValueError("Corrupted VaultLock file.")
+
+            if progress_cb:
+                progress_cb(35)
+
+            os.makedirs(out_dir, exist_ok=True)
+            temp_extract = tempfile.mkdtemp(prefix="vaultlock_out_", dir=out_dir)
+            processed = magic_len + SALT_LEN + NONCE_LEN + 4 + manifest_len
+            aesgcm = AESGCM(active_key)
+            try:
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        raise ValueError("Corrupted VaultLock file.")
+                    rel = entry.get("path")
+                    typ = entry.get("type")
+                    if not isinstance(rel, str) or not rel:
+                        raise ValueError("Corrupted VaultLock file.")
+
+                    target = _safe_target_path(temp_extract, rel)
+
+                    if typ == "dir":
+                        os.makedirs(target, exist_ok=True)
+                        continue
+
+                    if typ != "file":
+                        continue
+
+                    size = int(entry.get("size", -1))
+                    if size < 0:
+                        raise ValueError("Corrupted VaultLock file.")
+
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    remaining = size
+                    with open(target, "wb") as wf:
+                        while remaining > 0:
+                            plaintext, consumed = _read_encrypted_chunk(lf, aesgcm)
+                            expected = min(chunk_size, remaining)
+                            if len(plaintext) != expected:
+                                raise ValueError("Corrupted VaultLock file.")
+                            wf.write(plaintext)
+                            remaining -= len(plaintext)
+                            processed += consumed
+                            if progress_cb and total_size > 0:
+                                progress_cb(35 + int((processed / total_size) * 60))
+
+                    mtime = entry.get("mtime")
+                    if isinstance(mtime, (int, float)):
+                        try:
+                            os.utime(target, (mtime, mtime))
+                        except Exception:
+                            pass
+
+                # Ensure no unexpected encrypted payload remains.
+                if lf.read(1) not in (b"",):
+                    raise ValueError("Corrupted VaultLock file.")
+
+                for name in os.listdir(temp_extract):
+                    src = os.path.join(temp_extract, name)
+                    dst = os.path.join(out_dir, name)
+                    if os.path.exists(dst):
+                        if os.path.isdir(dst):
+                            shutil.rmtree(dst, ignore_errors=True)
+                        else:
+                            try:
+                                os.remove(dst)
+                            except OSError:
+                                pass
+                    shutil.move(src, dst)
+
+                if progress_cb:
+                    progress_cb(100)
+                return out_dir
+            finally:
+                shutil.rmtree(temp_extract, ignore_errors=True)
 
         if magic == MAGIC_V3:
             if progress_cb:
